@@ -1,37 +1,3 @@
-# FollowWatcher – komplettes Addon (Classic)
-
-Dieses Paket zeigt ein verschiebbares **Mini‑Fenster** (grün = du folgst *X*, rot = kein Follow) **und** synchronisiert in der **Gruppe/Raid**, wer wem folgt (Zeile: `A → B, C → D`).
-
-> **Installation**
->
-> 1. Ordner anlegen: `.../_classic_/Interface/AddOns/FollowWatcher/`
-> 2. Dateien wie unten anlegen (genau diese Namen)
-> 3. Spiel starten oder `/reload`
-> 4. In der Addon‑Liste „FollowWatcher“ aktivieren
->
-> **Slash‑Befehle**: `/fw lock`, `/fw unlock`, `/fw toggle`, `/fw reset`, `/fw print`
-
----
-
-## 1) `FollowWatcher.toc`
-
-```toc
-## Title: FollowWatcher
-## Notes: Mini-Statusfenster für Auto-Follow, Gruppen-Sync wer wem folgt
-## Author: You
-## Version: 1.2.0
-## SavedVariables: FollowWatcherDB
-## Interface: 11505
-FollowWatcher.lua
-```
-
-> **Hinweis:** Wenn das Addon nicht erscheint, passe `Interface:` an (nimm die Zahl aus einem funktionierenden Addon deiner Classic‑Version).
-
----
-
-## 2) `FollowWatcher.lua`
-
-```lua
 -- FollowWatcher.lua (Classic)
 local ADDON = ...
 
@@ -90,7 +56,6 @@ local labelParty = FW:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 labelParty:SetPoint("TOP", label, "BOTTOM", 0, -2)
 labelParty:SetText("")
 
--- Status-Setter
 local function setStatus(following, name)
   if following then
     setBGColor(0.00, 0.60, 0.00, 0.35) -- grün
@@ -99,9 +64,9 @@ local function setStatus(following, name)
     setBGColor(0.60, 0.00, 0.00, 0.35) -- rot
     label:SetText("Kein Follow")
   end
+  labelParty:SetText(rebuildPartyLine())
 end
 
--- Init-Status
 setStatus(false)
 
 -- =============================
@@ -126,11 +91,9 @@ local function rebuildPartyLine()
   end
   return table.concat(parts, ", ")
 end
-
 local function updatePartyLabel()
   labelParty:SetText(rebuildPartyLine())
 end
-
 local function sendFollowMsg(kind, target)
   if not C_ChatInfo or not C_ChatInfo.SendAddonMessage then return end
   if IsInGroup() or IsInRaid() then
@@ -156,7 +119,7 @@ local function isInMyGroup(name)
   if not name then return false end
   if IsInRaid() then
     for i=1, GetNumGroupMembers() do
-      local n, _, _, _, _, _, _, _, _, _, _ = GetRaidRosterInfo(i)
+      local n = GetRaidRosterInfo(i)
       if cleanName(n) == name then return true end
     end
   elseif IsInGroup() then
@@ -172,7 +135,6 @@ end
 f:SetScript("OnEvent", function(self, event, arg1, ...)
   if event == "ADDON_LOADED" and arg1 == ADDON then
     FollowWatcherDB = FollowWatcherDB or { enablePrint = true, locked = false, frame = {point="CENTER",relPoint="CENTER",x=0,y=0} }
-    -- Position anwenden
     FW:ClearAllPoints()
     FW:SetPoint(FollowWatcherDB.frame.point or "CENTER", UIParent, FollowWatcherDB.frame.relPoint or "CENTER", FollowWatcherDB.frame.x or 0, FollowWatcherDB.frame.y or 0)
     updatePartyLabel()
@@ -194,13 +156,11 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
     msg("Follow beendet.")
 
   elseif event == "PLAYER_ENTERING_WORLD" then
-    -- Beim Zonen-/Weltwechsel konservativ auf rot
     setStatus(false)
     partyFollows[cleanName(UnitName("player"))] = nil
     updatePartyLabel()
 
   elseif event == "GROUP_ROSTER_UPDATE" then
-    -- Einträge von Leuten entfernen, die nicht mehr in der Gruppe sind
     for follower,_ in pairs(partyFollows) do
       if not isInMyGroup(follower) then
         partyFollows[follower] = nil
@@ -252,14 +212,3 @@ SlashCmdList.FOLLOWWATCHER = function(cmd)
     msg("Befehle: /fw lock, /fw unlock, /fw toggle, /fw reset, /fw print")
   end
 end
-```
-
----
-
-## Hinweise & Troubleshooting
-
-* **Interface-Version:** Wenn das Addon im Spiel nicht sichtbar ist, `Interface:` in der TOC anpassen (Zahl aus einem funktionierenden Classic‑Addon übernehmen).
-* **Gruppensync:** Die Gruppenzeile füllt sich nur, wenn **andere Spieler das Addon ebenfalls aktiv** haben.
-* **Verschieben:** `/fw unlock` → ziehen mit linker Maustaste; `/fw lock` sperrt wieder.
-* **Persistenz:** Position & Einstellungen werden in `FollowWatcherDB` gespeichert.
-* **Sicherheit:** Keine Automatisierung von Follow, nur Anzeige & manuelle Befehle.
