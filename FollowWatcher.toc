@@ -3,5 +3,5 @@
 ## Author: You
 ## Version: 1.2.0
 ## SavedVariables: FollowWatcherDB
-## Interface: 11505
+## Interface: 11200
 FollowWatcher.lua
