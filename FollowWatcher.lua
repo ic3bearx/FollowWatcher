@@ -16,7 +16,8 @@ end
 
 -- UI: Mini window
 local FW = CreateFrame("Frame", "FW_FollowFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-FW:SetSize(220, 42)
+FW:SetWidth(220)
+FW:SetHeight(42)
 FW:SetPoint(FollowWatcherDB.frame.point or "CENTER", UIParent, FollowWatcherDB.frame.relPoint or "CENTER", FollowWatcherDB.frame.x or 0, FollowWatcherDB.frame.y or 0)
 
 FW:SetBackdrop({
