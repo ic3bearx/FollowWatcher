@@ -1,7 +1,7 @@
--- FollowWatcher.lua (Classic, ASCII-safe)
+-- FollowWatcher.lua (Classic, ASCII, safe init, Shift+Left drag)
 local ADDON_NAME = "FollowWatcher"
 
--- ===== SavedVariables (safe getter so nothing crashes early) =====
+-- ===== SavedVariables safe getter =====
 local function getDB()
   if type(FollowWatcherDB) ~= "table" then
     FollowWatcherDB = {
@@ -20,10 +20,9 @@ local function msg(text)
   end
 end
 
--- ===== UI: Mini window =====
-local FW = CreateFrame("Frame", "FW_FollowFrame", UIParent)  -- keep simple for Classic
-FW:SetWidth(220)
-FW:SetHeight(42)
+-- ===== UI frame (no DB access here) =====
+local FW = CreateFrame("Frame", "FW_FollowFrame", UIParent)
+FW:SetWidth(220); FW:SetHeight(42)
 
 FW:SetBackdrop({
   bgFile   = "Interface\\Buttons\\WHITE8x8",
@@ -34,7 +33,6 @@ FW:SetBackdrop({
 local function setBGColor(r,g,b,a) FW:SetBackdropColor(r,g,b,a or 0.35) end
 FW:SetBackdropBorderColor(0.2,0.2,0.2,1)
 
--- Mouse/drag is wired after ADDON_LOADED; still enable here
 FW:EnableMouse(true)
 FW:SetMovable(true)
 
@@ -46,7 +44,7 @@ local labelParty = FW:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 labelParty:SetPoint("TOP", label, "BOTTOM", 0, -2)
 labelParty:SetText("")
 
--- ===== Follow status & party line =====
+-- ===== Follow status + party line (no DB access) =====
 local partyFollows = {}  -- [follower] = target
 
 local function rebuildPartyLine()
@@ -65,14 +63,10 @@ end
 
 local function setStatus(following, name)
   if following then
-    setBGColor(0.00, 0.60, 0.00, 0.35) -- green
-    if name and name ~= "" then
-      label:SetText("Folge: " .. name)
-    else
-      label:SetText("Folge: ?")
-    end
+    setBGColor(0.00, 0.60, 0.00, 0.35)
+    label:SetText((name and name ~= "") and ("Folge: " .. name) or "Folge: ?")
   else
-    setBGColor(0.60, 0.00, 0.00, 0.35) -- red
+    setBGColor(0.60, 0.00, 0.00, 0.35)
     label:SetText("Kein Follow")
   end
   updatePartyLabel()
@@ -80,12 +74,18 @@ end
 
 setStatus(false)
 
--- ===== Group sync (addon messages) =====
+-- ===== Addon message helpers =====
 local PREFIX = "FW1"
 
 local function cleanName(n)
   if not n then return nil end
   return n:gsub("%-.*$", "")
+end
+
+local function registerPrefix(prefix)
+  if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    C_ChatInfo.RegisterAddonMessagePrefix(prefix)
+  end
 end
 
 local function sendAddon(prefix, msgText, channel)
@@ -96,14 +96,8 @@ local function sendAddon(prefix, msgText, channel)
   end
 end
 
-local function registerPrefix(prefix)
-  if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
-    C_ChatInfo.RegisterAddonMessagePrefix(prefix)
-  end
-end
-
 local function sendFollowMsg(kind, target)
-  if (IsInRaid() or IsInGroup()) then
+  if IsInRaid() or IsInGroup() then
     local who = UnitName("player") or ""
     local payload = string.upper(kind or "") .. ":" .. who .. ":" .. (target or "")
     sendAddon(PREFIX, payload, IsInRaid() and "RAID" or "PARTY")
@@ -119,32 +113,35 @@ f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("CHAT_MSG_ADDON")
 
-f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
+-- Drag handlers (bound after ADDON_LOADED)
+local function onDragStart(frame)
+  local db = getDB()
+  if IsShiftKeyDown() and not db.locked then
+    frame:StartMoving()
+  end
+end
+local function onDragStop(frame)
+  frame:StopMovingOrSizing()
+  local point, _, relPoint, x, y = frame:GetPoint()
+  local db = getDB()
+  db.frame.point, db.frame.relPoint = point, relPoint
+  db.frame.x, db.frame.y = x, y
+end
+
+f:SetScript("OnEvent", function(self, event, arg1, arg2)
   if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
     local db = getDB()
 
-    -- Position now that SavedVariables are ready
+    -- now that DB exists, position + drag scripts
     FW:ClearAllPoints()
     FW:SetPoint(db.frame.point or "CENTER", UIParent, db.frame.relPoint or "CENTER", db.frame.x or 0, db.frame.y or 0)
-
-    -- Drag handlers (Shift + LeftButton)
     FW:RegisterForDrag("LeftButton")
-    FW:SetScript("OnDragStart", function(frame)
-      if IsShiftKeyDown() and not getDB().locked then
-        frame:StartMoving()
-      end
-    end)
-    FW:SetScript("OnDragStop", function(frame)
-      frame:StopMovingOrSizing()
-      local point, _, relPoint, x, y = frame:GetPoint()
-      local d = getDB()
-      d.frame.point, d.frame.relPoint = point, relPoint
-      d.frame.x, d.frame.y = x, y
-    end)
+    FW:SetScript("OnDragStart", onDragStart)
+    FW:SetScript("OnDragStop",  onDragStop)
 
     registerPrefix(PREFIX)
     updatePartyLabel()
-    msg("geladen. /fw fuer Hilfe. (Shift+LeftButton drag)")
+    msg("geladen. /fw fuer Hilfe. (Shift+Left drag)")
 
   elseif event == "AUTOFOLLOW_BEGIN" then
     local targetName = cleanName(arg1)
@@ -162,13 +159,11 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     msg("Follow beendet.")
 
   elseif event == "PLAYER_ENTERING_WORLD" then
-    -- conservative reset on load
     setStatus(false)
     partyFollows[cleanName(UnitName("player"))] = nil
     updatePartyLabel()
 
   elseif event == "GROUP_ROSTER_UPDATE" then
-    -- optional cleanup could be placed here if needed
     updatePartyLabel()
 
   elseif event == "CHAT_MSG_ADDON" then
