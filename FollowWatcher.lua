@@ -1,24 +1,29 @@
--- FollowWatcher.lua (Classic, ASCII-safe, no varargs)
+-- FollowWatcher.lua (Classic, ASCII-safe)
 local ADDON_NAME = "FollowWatcher"
 
--- SavedVariables
-FollowWatcherDB = FollowWatcherDB or {
-  enablePrint = true,
-  locked = false,
-  frame = { x = 0, y = 0, point = "CENTER", relPoint = "CENTER" },
-}
+-- ===== SavedVariables (safe getter so nothing crashes early) =====
+local function getDB()
+  if type(FollowWatcherDB) ~= "table" then
+    FollowWatcherDB = {
+      enablePrint = true,
+      locked = false,
+      frame = { x = 0, y = 0, point = "CENTER", relPoint = "CENTER" },
+    }
+  end
+  return FollowWatcherDB
+end
 
 local function msg(text)
-  if FollowWatcherDB.enablePrint and DEFAULT_CHAT_FRAME and text then
+  local db = getDB()
+  if db.enablePrint and DEFAULT_CHAT_FRAME and text then
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff88[FollowWatcher]|r " .. tostring(text))
   end
 end
 
--- UI: Mini window
-local FW = CreateFrame("Frame", "FW_FollowFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+-- ===== UI: Mini window =====
+local FW = CreateFrame("Frame", "FW_FollowFrame", UIParent)  -- keep simple for Classic
 FW:SetWidth(220)
 FW:SetHeight(42)
-FW:SetPoint(FollowWatcherDB.frame.point or "CENTER", UIParent, FollowWatcherDB.frame.relPoint or "CENTER", FollowWatcherDB.frame.x or 0, FollowWatcherDB.frame.y or 0)
 
 FW:SetBackdrop({
   bgFile   = "Interface\\Buttons\\WHITE8x8",
@@ -29,18 +34,9 @@ FW:SetBackdrop({
 local function setBGColor(r,g,b,a) FW:SetBackdropColor(r,g,b,a or 0.35) end
 FW:SetBackdropBorderColor(0.2,0.2,0.2,1)
 
+-- Mouse/drag is wired after ADDON_LOADED; still enable here
 FW:EnableMouse(true)
 FW:SetMovable(true)
-FW:RegisterForDrag("LeftButton")
-FW:SetScript("OnDragStart", function(self)
-  if not FollowWatcherDB.locked then self:StartMoving() end
-end)
-FW:SetScript("OnDragStop", function(self)
-  self:StopMovingOrSizing()
-  local point, _, relPoint, x, y = self:GetPoint()
-  FollowWatcherDB.frame.point, FollowWatcherDB.frame.relPoint = point, relPoint
-  FollowWatcherDB.frame.x, FollowWatcherDB.frame.y = x, y
-end)
 
 local label = FW:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 label:SetPoint("CENTER", FW, "CENTER", 0, 6)
@@ -50,7 +46,7 @@ local labelParty = FW:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 labelParty:SetPoint("TOP", label, "BOTTOM", 0, -2)
 labelParty:SetText("")
 
--- group follow table
+-- ===== Follow status & party line =====
 local partyFollows = {}  -- [follower] = target
 
 local function rebuildPartyLine()
@@ -84,27 +80,37 @@ end
 
 setStatus(false)
 
--- group sync
+-- ===== Group sync (addon messages) =====
 local PREFIX = "FW1"
-if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
-  C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
-end
 
 local function cleanName(n)
   if not n then return nil end
   return n:gsub("%-.*$", "")
 end
 
-local function sendFollowMsg(kind, target)
-  if not C_ChatInfo or not C_ChatInfo.SendAddonMessage then return end
-  if IsInGroup() or IsInRaid() then
-    local who = UnitName("player") or ""
-    local payload = string.upper(kind or "") .. ":" .. who .. ":" .. (target or "")
-    C_ChatInfo.SendAddonMessage(PREFIX, payload, IsInRaid() and "RAID" or "PARTY")
+local function sendAddon(prefix, msgText, channel)
+  if C_ChatInfo and C_ChatInfo.SendAddonMessage then
+    C_ChatInfo.SendAddonMessage(prefix, msgText, channel)
+  elseif SendAddonMessage then
+    SendAddonMessage(prefix, msgText, channel)
   end
 end
 
--- events
+local function registerPrefix(prefix)
+  if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    C_ChatInfo.RegisterAddonMessagePrefix(prefix)
+  end
+end
+
+local function sendFollowMsg(kind, target)
+  if (IsInRaid() or IsInGroup()) then
+    local who = UnitName("player") or ""
+    local payload = string.upper(kind or "") .. ":" .. who .. ":" .. (target or "")
+    sendAddon(PREFIX, payload, IsInRaid() and "RAID" or "PARTY")
+  end
+end
+
+-- ===== Events =====
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("AUTOFOLLOW_BEGIN")
@@ -113,31 +119,32 @@ f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("CHAT_MSG_ADDON")
 
-local function isInMyGroup(name)
-  name = cleanName(name)
-  if not name then return false end
-  if IsInRaid() then
-    for i=1, GetNumGroupMembers() do
-      local n = GetRaidRosterInfo(i)
-      if cleanName(n) == name then return true end
-    end
-  elseif IsInGroup() then
-    for i=1, GetNumSubgroupMembers() do
-      local unit = "party" .. i
-      local n = UnitName(unit)
-      if cleanName(n) == name then return true end
-    end
-  end
-  return name == cleanName(UnitName("player"))
-end
-
 f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
   if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
-    FollowWatcherDB = FollowWatcherDB or { enablePrint = true, locked = false, frame = {point="CENTER",relPoint="CENTER",x=0,y=0} }
+    local db = getDB()
+
+    -- Position now that SavedVariables are ready
     FW:ClearAllPoints()
-    FW:SetPoint(FollowWatcherDB.frame.point or "CENTER", UIParent, FollowWatcherDB.frame.relPoint or "CENTER", FollowWatcherDB.frame.x or 0, FollowWatcherDB.frame.y or 0)
+    FW:SetPoint(db.frame.point or "CENTER", UIParent, db.frame.relPoint or "CENTER", db.frame.x or 0, db.frame.y or 0)
+
+    -- Drag handlers (Shift + LeftButton)
+    FW:RegisterForDrag("LeftButton")
+    FW:SetScript("OnDragStart", function(frame)
+      if IsShiftKeyDown() and not getDB().locked then
+        frame:StartMoving()
+      end
+    end)
+    FW:SetScript("OnDragStop", function(frame)
+      frame:StopMovingOrSizing()
+      local point, _, relPoint, x, y = frame:GetPoint()
+      local d = getDB()
+      d.frame.point, d.frame.relPoint = point, relPoint
+      d.frame.x, d.frame.y = x, y
+    end)
+
+    registerPrefix(PREFIX)
     updatePartyLabel()
-    msg("geladen. /fw fuer Hilfe.")
+    msg("geladen. /fw fuer Hilfe. (Shift+LeftButton drag)")
 
   elseif event == "AUTOFOLLOW_BEGIN" then
     local targetName = cleanName(arg1)
@@ -155,16 +162,13 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     msg("Follow beendet.")
 
   elseif event == "PLAYER_ENTERING_WORLD" then
+    -- conservative reset on load
     setStatus(false)
     partyFollows[cleanName(UnitName("player"))] = nil
     updatePartyLabel()
 
   elseif event == "GROUP_ROSTER_UPDATE" then
-    for follower,_ in pairs(partyFollows) do
-      if not isInMyGroup(follower) then
-        partyFollows[follower] = nil
-      end
-    end
+    -- optional cleanup could be placed here if needed
     updatePartyLabel()
 
   elseif event == "CHAT_MSG_ADDON" then
@@ -186,24 +190,25 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
   end
 end)
 
--- Slash commands
+-- ===== Slash commands =====
 SLASH_FOLLOWWATCHER1 = "/fw"
 SlashCmdList.FOLLOWWATCHER = function(cmd)
   cmd = (cmd or ""):lower():gsub("^%s+", "")
+  local db = getDB()
   if cmd == "lock" then
-    FollowWatcherDB.locked = true;  msg("Fenster gesperrt (lock).")
+    db.locked = true;  msg("Fenster gesperrt (lock).")
   elseif cmd == "unlock" then
-    FollowWatcherDB.locked = false; msg("Fenster entsperrt (unlock).")
+    db.locked = false; msg("Fenster entsperrt (unlock).")
   elseif cmd == "toggle" then
     if FW:IsShown() then FW:Hide() else FW:Show() end
     msg("Fenster: " .. (FW:IsShown() and "sichtbar" or "versteckt"))
   elseif cmd == "reset" then
-    FollowWatcherDB.frame = { point="CENTER", relPoint="CENTER", x=0, y=0 }
+    db.frame = { point="CENTER", relPoint="CENTER", x=0, y=0 }
     FW:ClearAllPoints(); FW:SetPoint("CENTER")
     msg("Position zurueckgesetzt.")
   elseif cmd == "print" then
-    FollowWatcherDB.enablePrint = not FollowWatcherDB.enablePrint
-    msg("Chat-Ausgabe: " .. (FollowWatcherDB.enablePrint and "AN" or "AUS"))
+    db.enablePrint = not db.enablePrint
+    msg("Chat-Ausgabe: " .. (db.enablePrint and "AN" or "AUS"))
   else
     msg("Befehle: /fw lock, /fw unlock, /fw toggle, /fw reset, /fw print")
   end
