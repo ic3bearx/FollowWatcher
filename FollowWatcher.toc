@@ -1,7 +1,7 @@
 ## Title: FollowWatcher
 ## Notes: Mini-Statusfenster für Auto-Follow, Gruppen-Sync wer wem folgt
-## Author: Ic3BeaR
-## Version: 1.2.1
+## Author: You
+## Version: 1.2.0
 ## SavedVariables: FollowWatcherDB
 ## Interface: 11505
 FollowWatcher.lua
