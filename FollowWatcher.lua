@@ -1,29 +1,24 @@
--- FollowWatcher.lua (Classic) - ohne "..." am Datei-Anfang
+-- FollowWatcher.lua (Classic, ASCII-safe, no varargs)
 local ADDON_NAME = "FollowWatcher"
 
--- =============================
--- SavedVariables (Persistenz)
--- =============================
+-- SavedVariables
 FollowWatcherDB = FollowWatcherDB or {
   enablePrint = true,
   locked = false,
   frame = { x = 0, y = 0, point = "CENTER", relPoint = "CENTER" },
 }
 
-local function msg(...)
-  if FollowWatcherDB.enablePrint then
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff88[FollowWatcher]|r "..table.concat({...}, " "))
+local function msg(text)
+  if FollowWatcherDB.enablePrint and DEFAULT_CHAT_FRAME and text then
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff88[FollowWatcher]|r " .. tostring(text))
   end
 end
 
--- =============================
--- Mini-Fenster (UI)
--- =============================
+-- UI: Mini window
 local FW = CreateFrame("Frame", "FW_FollowFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
 FW:SetSize(220, 42)
 FW:SetPoint(FollowWatcherDB.frame.point or "CENTER", UIParent, FollowWatcherDB.frame.relPoint or "CENTER", FollowWatcherDB.frame.x or 0, FollowWatcherDB.frame.y or 0)
 
--- Optik
 FW:SetBackdrop({
   bgFile   = "Interface\\Buttons\\WHITE8x8",
   edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -33,7 +28,6 @@ FW:SetBackdrop({
 local function setBGColor(r,g,b,a) FW:SetBackdropColor(r,g,b,a or 0.35) end
 FW:SetBackdropBorderColor(0.2,0.2,0.2,1)
 
--- Dragging
 FW:EnableMouse(true)
 FW:SetMovable(true)
 FW:RegisterForDrag("LeftButton")
@@ -47,7 +41,6 @@ FW:SetScript("OnDragStop", function(self)
   FollowWatcherDB.frame.x, FollowWatcherDB.frame.y = x, y
 end)
 
--- Texte
 local label = FW:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 label:SetPoint("CENTER", FW, "CENTER", 0, 6)
 label:SetText("Kein Follow")
@@ -56,49 +49,61 @@ local labelParty = FW:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 labelParty:SetPoint("TOP", label, "BOTTOM", 0, -2)
 labelParty:SetText("")
 
--- Status-Setter
-local partyFollows = {}  -- [followerName] = targetName
+-- group follow table
+local partyFollows = {}  -- [follower] = target
+
 local function rebuildPartyLine()
   local parts = {}
   for follower, target in pairs(partyFollows) do
-    if target and target ~= "" then table.insert(parts, follower.." → "..target) end
+    if target and target ~= "" then
+      table.insert(parts, follower .. " -> " .. target)
+    end
   end
   return table.concat(parts, ", ")
 end
-local function setStatus(following, name)
-  if following then
-    setBGColor(0.00, 0.60, 0.00, 0.35) -- grün
-    label:SetText((name and name ~= "") and ("Folge: "..name) or "Folge: ?")
-  else
-    setBGColor(0.60, 0.00, 0.00, 0.35) -- rot
-    label:SetText("Kein Follow")
-  end
+
+local function updatePartyLabel()
   labelParty:SetText(rebuildPartyLine())
 end
+
+local function setStatus(following, name)
+  if following then
+    setBGColor(0.00, 0.60, 0.00, 0.35) -- green
+    if name and name ~= "" then
+      label:SetText("Folge: " .. name)
+    else
+      label:SetText("Folge: ?")
+    end
+  else
+    setBGColor(0.60, 0.00, 0.00, 0.35) -- red
+    label:SetText("Kein Follow")
+  end
+  updatePartyLabel()
+end
+
 setStatus(false)
 
--- =============================
--- Gruppen-Sync (wer folgt wem)
--- =============================
+-- group sync
 local PREFIX = "FW1"
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
   C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
 end
 
-local function cleanName(n) return n and n:gsub("%-.*$", "") or n end
-local function updatePartyLabel() labelParty:SetText(rebuildPartyLine()) end
+local function cleanName(n)
+  if not n then return nil end
+  return n:gsub("%-.*$", "")
+end
+
 local function sendFollowMsg(kind, target)
   if not C_ChatInfo or not C_ChatInfo.SendAddonMessage then return end
   if IsInGroup() or IsInRaid() then
-    local who = UnitName("player")
-    local payload = (kind or ""):upper()..":"..(who or "")..":"..(target or "")
+    local who = UnitName("player") or ""
+    local payload = string.upper(kind or "") .. ":" .. who .. ":" .. (target or "")
     C_ChatInfo.SendAddonMessage(PREFIX, payload, IsInRaid() and "RAID" or "PARTY")
   end
 end
 
--- =============================
--- Events
--- =============================
+-- events
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("AUTOFOLLOW_BEGIN")
@@ -117,7 +122,7 @@ local function isInMyGroup(name)
     end
   elseif IsInGroup() then
     for i=1, GetNumSubgroupMembers() do
-      local unit = "party"..i
+      local unit = "party" .. i
       local n = UnitName(unit)
       if cleanName(n) == name then return true end
     end
@@ -125,13 +130,13 @@ local function isInMyGroup(name)
   return name == cleanName(UnitName("player"))
 end
 
-f:SetScript("OnEvent", function(self, event, arg1, ...)
+f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
   if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
     FollowWatcherDB = FollowWatcherDB or { enablePrint = true, locked = false, frame = {point="CENTER",relPoint="CENTER",x=0,y=0} }
     FW:ClearAllPoints()
     FW:SetPoint(FollowWatcherDB.frame.point or "CENTER", UIParent, FollowWatcherDB.frame.relPoint or "CENTER", FollowWatcherDB.frame.x or 0, FollowWatcherDB.frame.y or 0)
-    labelParty:SetText(rebuildPartyLine())
-    msg("geladen. /fw für Hilfe.")
+    updatePartyLabel()
+    msg("geladen. /fw fuer Hilfe.")
 
   elseif event == "AUTOFOLLOW_BEGIN" then
     local targetName = cleanName(arg1)
@@ -139,7 +144,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
     partyFollows[cleanName(UnitName("player"))] = targetName
     updatePartyLabel()
     sendFollowMsg("BEGIN", targetName)
-    msg("Du folgst jetzt: "..(targetName or "?"))
+    msg("Du folgst jetzt: " .. (targetName or "?"))
 
   elseif event == "AUTOFOLLOW_END" then
     setStatus(false)
@@ -155,15 +160,19 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
 
   elseif event == "GROUP_ROSTER_UPDATE" then
     for follower,_ in pairs(partyFollows) do
-      if not isInMyGroup(follower) then partyFollows[follower] = nil end
+      if not isInMyGroup(follower) then
+        partyFollows[follower] = nil
+      end
     end
     updatePartyLabel()
 
   elseif event == "CHAT_MSG_ADDON" then
-    local prefix, message = arg1, ...
+    local prefix = arg1
+    local message = arg2
     if prefix == PREFIX and type(message) == "string" then
       local kind, who, target = message:match("^([^:]*):([^:]*):(.*)$")
-      who, target = cleanName(who), cleanName(target)
+      who   = cleanName(who)
+      target= cleanName(target)
       if who and who ~= cleanName(UnitName("player")) then
         if kind == "BEGIN" then
           partyFollows[who] = target or ""
@@ -176,9 +185,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
   end
 end)
 
--- =============================
--- Slash-Commands
--- =============================
+-- Slash commands
 SLASH_FOLLOWWATCHER1 = "/fw"
 SlashCmdList.FOLLOWWATCHER = function(cmd)
   cmd = (cmd or ""):lower():gsub("^%s+", "")
@@ -188,13 +195,14 @@ SlashCmdList.FOLLOWWATCHER = function(cmd)
     FollowWatcherDB.locked = false; msg("Fenster entsperrt (unlock).")
   elseif cmd == "toggle" then
     if FW:IsShown() then FW:Hide() else FW:Show() end
-    msg("Fenster: "..(FW:IsShown() and "sichtbar" or "versteckt"))
+    msg("Fenster: " .. (FW:IsShown() and "sichtbar" or "versteckt"))
   elseif cmd == "reset" then
     FollowWatcherDB.frame = { point="CENTER", relPoint="CENTER", x=0, y=0 }
-    FW:ClearAllPoints(); FW:SetPoint("CENTER"); msg("Position zurückgesetzt.")
+    FW:ClearAllPoints(); FW:SetPoint("CENTER")
+    msg("Position zurueckgesetzt.")
   elseif cmd == "print" then
     FollowWatcherDB.enablePrint = not FollowWatcherDB.enablePrint
-    msg("Chat-Ausgabe: "..(FollowWatcherDB.enablePrint and "AN" or "AUS"))
+    msg("Chat-Ausgabe: " .. (FollowWatcherDB.enablePrint and "AN" or "AUS"))
   else
     msg("Befehle: /fw lock, /fw unlock, /fw toggle, /fw reset, /fw print")
   end
